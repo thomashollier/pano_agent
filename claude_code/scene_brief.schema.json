@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SceneBrief",
+  "description": "Structured description of an interior space, used to build a ComfyUI panorama workflow.",
+  "type": "object",
+  "required": ["style", "space", "windows", "doors", "lighting", "camera", "cardinals", "interstitials"],
+  "properties": {
+    "style": {
+      "type": "object",
+      "properties": {
+        "art_style": {"type": "string"},
+        "palette": {"type": "string"},
+        "materials": {"type": "string"},
+        "atmosphere": {"type": "string"},
+        "rendering_notes": {"type": "string"}
+      }
+    },
+    "space": {
+      "type": "object",
+      "properties": {
+        "type_label": {"type": "string", "description": "e.g. 'single-wide vintage trailer interior'"},
+        "dimensions": {"type": "string"},
+        "geometry_rules": {"type": "string", "description": "strict rules: flat walls, 90° corners, no recesses"},
+        "floor": {"type": "string"},
+        "ceiling": {"type": "string"},
+        "walls": {"type": "string"}
+      }
+    },
+    "windows": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string", "description": "ONE canonical shape/size — every window in the panorama must match"},
+        "placement_rules": {"type": "string", "description": "per-wall counts and order"}
+      }
+    },
+    "doors": {
+      "type": "object",
+      "properties": {
+        "exterior": {"type": "string"},
+        "interior": {"type": "string"}
+      }
+    },
+    "lighting": {
+      "type": "object",
+      "properties": {
+        "key_light": {"type": "string"},
+        "fill_light": {"type": "string"},
+        "darkest_zone": {"type": "string"},
+        "fixed_world_space_description": {"type": "string", "description": "lighting fixed in world space, not relative to camera"}
+      }
+    },
+    "camera": {
+      "type": "object",
+      "properties": {
+        "height_meters": {"type": "number", "default": 1.6},
+        "fov_horizontal_degrees": {"type": "integer", "default": 90},
+        "fov_vertical_degrees": {"type": "integer", "default": 90},
+        "aspect_ratio": {"type": "string", "default": "1:1"},
+        "flat_on_required": {"type": "boolean", "default": true},
+        "extra_notes": {"type": "string"}
+      }
+    },
+    "cardinals": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["key", "angle", "label", "wall_inventory"],
+        "properties": {
+          "key": {"type": "string", "pattern": "^C[0-9]+$", "description": "C1, C2, C3, ..."},
+          "angle": {"type": "integer", "minimum": 0, "maximum": 359},
+          "label": {"type": "string", "description": "human-readable, e.g. 'View 1 — FRONT (0°) — Kitchen end'"},
+          "wall_role": {"type": "string"},
+          "wall_inventory": {
+            "type": "string",
+            "description": "UPPER ZONE: ... \\nMID ZONE: ... \\nLOWER ZONE: ... — list every visible item by zone, left to right"
+          },
+          "left_edge_content": {"type": "string", "description": "what the partial sliver of the counter-clockwise neighbor wall shows"},
+          "right_edge_content": {"type": "string", "description": "what the partial sliver of the clockwise neighbor wall shows"},
+          "custom_notes": {"type": "string"}
+        }
+      }
+    },
+    "interstitials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "angle", "label", "left_neighbor_key", "right_neighbor_key", "corner_description"],
+        "properties": {
+          "key": {"type": "string", "pattern": "^I[0-9]+$"},
+          "angle": {"type": "integer", "minimum": 0, "maximum": 359},
+          "label": {"type": "string"},
+          "left_neighbor_key": {"type": "string", "pattern": "^C[0-9]+$"},
+          "right_neighbor_key": {"type": "string", "pattern": "^C[0-9]+$"},
+          "left_half_content": {"type": "string"},
+          "right_half_content": {"type": "string"},
+          "corner_description": {"type": "string", "description": "MUST explicitly state clean 90° corner, no recess/alcove/closet"},
+          "custom_notes": {"type": "string"}
+        }
+      }
+    },
+    "reference_cardinal_key": {
+      "type": "string",
+      "pattern": "^C[0-9]+$",
+      "default": "C1",
+      "description": "which cardinal the reference image corresponds to"
+    }
+  }
+}
