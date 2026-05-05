@@ -84,6 +84,7 @@ def generate_pano(
     prompt: str = "",
     tau: int = 50,      # 0–100: lower = stronger source consistency, higher = more freedom
     seed: int = 0,
+    steps: int = 50,
 ) -> bytes:
     """
     Perspective image → 360° equirectangular panorama (PNG bytes, 1024×2048).
@@ -234,7 +235,7 @@ def generate_pano(
         image=canvas_img,
         height=PANO_H,
         width=PANO_W,
-        num_inversion_steps=50,
+        num_inversion_steps=steps,
         gamma=1.0,
     )
 
@@ -260,7 +261,7 @@ def generate_pano(
         width=PANO_W,
         start_timestep=0.0,
         stop_timestep=0.99,
-        num_inference_steps=50,
+        num_inference_steps=steps,
         eta=1.0,
         generator=torch.Generator(device=device).manual_seed(seed),
         mask=mask,
@@ -285,6 +286,7 @@ def main(
     output: str = "",
     tau: int = 50,
     seed: int = 0,
+    steps: int = 50,
 ):
     """
     image   -- path to the input perspective image (JPG, PNG, …)
@@ -292,6 +294,7 @@ def main(
     output  -- output path (default: <stem>_dit360.png)
     tau     -- source-consistency strength 0–100 (default 50; lower = tighter lock)
     seed    -- random seed for reproducibility (default 0)
+    steps   -- number of diffusion steps (default 50)
     """
     image_path = Path(image)
     if not image_path.exists():
@@ -312,6 +315,7 @@ def main(
         prompt=prompt,
         tau=tau,
         seed=seed,
+        steps=steps,
     )
 
     out_path.write_bytes(pano_bytes)
