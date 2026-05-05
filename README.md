@@ -1,10 +1,95 @@
 # pano_agent
 
-Build a ComfyUI panorama-generation workflow from a single reference image of an interior space.
+Tools for generating 360° equirectangular panoramas from a single perspective image, plus a ComfyUI workflow builder for multi-view interior rendering.
 
-The agent analyzes the image, infers the geometry of the unseen parts of the space, and emits a ComfyUI workflow JSON with all prompt nodes, batch nodes, and Nano Banana generation nodes pre-wired in the right execution order to produce N synchronized panorama views.
+---
 
-Two pipelines are available:
+## Modal panorama scripts
+
+Three GPU scripts that run on [Modal](https://modal.com), each implementing a different outpainting approach. All three share the same first step: **DepthPro** estimates the camera's focal length so the perspective image is projected onto the equirectangular canvas with geometrically correct FOV before any model fills in the unseen regions.
+
+### Source image
+
+<img src="examples/source.jpg" width="400">
+
+*Single perspective image of a vintage trailer interior — the input to all three pipelines.*
+
+---
+
+### WorldGen (`worldgen_pano.py`)
+
+Uses **FLUX.1-dev Fill** + WorldGen's panoramic LoRA. Inpaints the unseen ~75% of the sphere after projecting the reference image onto a 1024×512 canvas.
+
+<img src="examples/worldgen_pano.jpg" width="800">
+
+```bash
+modal run worldgen_pano.py --image input.jpg --prompt "vintage trailer interior"
+```
+
+| | |
+|---|---|
+| Base model | FLUX.1-dev Fill |
+| LoRA | WorldGen panoramic (`worldgen_img2scene.safetensors`) |
+| Output | 1024×512 |
+| GPU | A100 40GB |
+
+---
+
+### DiT360 (`dit360_pano.py`)
+
+Uses **FLUX.1-dev** + DiT360's panoramic LoRA with circular-padded attention and RFID inversion (Personalize Anything) to preserve projected pixels while outpainting. Higher fidelity at full panorama resolution.
+
+<img src="examples/dit360_pano.jpg" width="800">
+
+```bash
+modal run dit360_pano.py --image input.jpg --prompt "vintage trailer interior"
+# Optional: --tau 30  (lower = tighter lock to source image, default 50)
+```
+
+| | |
+|---|---|
+| Base model | FLUX.1-dev |
+| LoRA | DiT360 (`Insta360-Research/DiT360-Panorama-Image-Generation`) |
+| Output | 2048×1024 |
+| GPU | A100-80GB (~37 GB VRAM) |
+| Paper | [arxiv 2510.11712](https://arxiv.org/abs/2510.11712) |
+
+---
+
+### HunyuanWorld (`hunyuan_pano.py`)
+
+Uses **FLUX.1-Fill-dev** + HunyuanWorld's panoramic LoRA. Best results for preserving interior geometry — narrow spaces stay narrow. Supports higher resolutions and more inference steps for finer detail.
+
+<img src="examples/hunyuan_pano.jpg" width="800">
+
+```bash
+modal run hunyuan_pano.py --image input.jpg --prompt "vintage trailer interior" \
+  --pano-h 1024 --pano-w 2048 --steps 75
+```
+
+| | |
+|---|---|
+| Base model | FLUX.1-Fill-dev |
+| LoRA | HunyuanWorld-PanoDiT-Image (`tencent/HunyuanWorld-1`) |
+| Output | 1024×2048 (configurable) |
+| GPU | A100 40GB |
+| Repo | [HunyuanWorld-1.0](https://github.com/Tencent-Hunyuan/HunyuanWorld-1.0) |
+
+---
+
+### Setup (one-time)
+
+```bash
+pip install modal
+modal setup
+modal secret create huggingface HF_TOKEN=hf_yourtoken
+```
+
+---
+
+## ComfyUI workflow builder (pano_agent)
+
+Generates multi-view flat-on cardinal renders of an interior space from a single reference image, emitting a ComfyUI workflow JSON.
 
 ```
 pano_agent/
@@ -14,74 +99,28 @@ pano_agent/
 └── tests/             ← test suite for the shared library
 ```
 
-## Which pipeline?
-
-| | CLI | Claude Code |
-|---|---|---|
-| Best for | Reproducible, headless, batch | Interactive, iterative, diagnostic |
-| Setup | `pip install anthropic` + API key | Claude Code installed + authenticated |
-| Workflow | One-shot, scriptable | Conversational |
-| Can iterate on output images | No | Yes |
-| Determinism | Same input → same brief | Conversational drift possible |
-
-Both pipelines produce the same shape of output (`scene_brief.json` → `workflow.json`) and share the build pass, prompt templates, and tests. Switching between them at any point works fine.
-
-## Quick start — CLI
+### Quick start — CLI
 
 ```bash
 cd cli/
 pip install anthropic
 export ANTHROPIC_API_KEY=sk-...
-
 python pano_agent_cli.py run ../reference.png -o ../workflow.json
 ```
 
-See [`cli/README.md`](cli/README.md) for full documentation.
-
-## Quick start — Claude Code
+### Quick start — Claude Code
 
 ```bash
 cd claude_code/
 claude --append-system-prompt "$(cat SESSION.md)" \
        "Analyze this reference image and write scene_brief.json. <attach reference.png>"
-
-# After Claude writes the brief:
 python build.py scene_brief.json -o workflow.json
 ```
 
-See [`claude_code/README.md`](claude_code/README.md) for full documentation.
+The build pass generates 8 views (4 cardinals + 4 interstitial corners) with prompts that enforce flat-on camera, world-space lighting, canonical window specs, and no corner recesses. See `pano_agent/prompts.py`.
 
-## What the workflow does
-
-For an N-view panorama (N=8 by default), the generated ComfyUI workflow:
-
-1. Generates the **reference cardinal** flat-on (the wall the input image faces) using only the reference image as input.
-2. Generates the **opposite cardinal** (180° away) flat-on, also from the reference image.
-3. Generates the remaining cardinals using `[reference + ref-cardinal output + opposite-cardinal output]` as inputs — the side walls have anchor views to seam to on both ends.
-4. Generates the interstitial **corner views** using `[reference + flanking cardinals]` as inputs.
-
-ComfyUI's topological execution naturally enforces this order. One queued run produces all 8 views in the correct sequence with consistent style, lighting, and architectural geometry.
-
-## What's special about the prompts
-
-The build pass embeds rules that emerged from extensive iteration on real generations. Without them, image models reliably:
-
-- Drop fixtures (kitchen cabinets disappear)
-- Vary window shape between views (some arched, some rectangular)
-- Invent architectural recesses at corners (closets, alcoves, bump-outs)
-- Re-light each view relative to the camera instead of in world space
-- Render walls obliquely instead of flat-on
-
-The prompt templates explicitly forbid each of these. See `pano_agent/prompts.py`.
-
-## Tests
+### Tests
 
 ```bash
 python -m pytest tests/ -v
 ```
-
-25 tests covering geometry helpers, brief round-tripping, prompt synthesis, and build integrity (link validation, execution order, image-input wiring) for N ∈ {2, 4, 6, 8} cardinals.
-
-## Background
-
-This was iterated through a long conversation about generating a 360° panorama from a single hand-painted reference of a vintage trailer interior. The conversation produced both pipelines, the rule set that goes into the prompt templates, and the workflow structure. See `tests/test_pano_agent.py` for what each rule looks like in code.
